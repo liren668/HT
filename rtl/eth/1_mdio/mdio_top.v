@@ -1,11 +1,3 @@
-//----------------------------------------------------------------------------------------
-// File name:           mdio_top.v
-// Created by:          珊瑚伊斯特
-// Created date:        2025.4
-// Version:             V0.1
-// Descriptions:        mdio_top，mdio接口驱动和读写控制。
-//2025.4.16增加速率状态输出，并可以根据上层要求配置速率 
-//----------------------------------------------------------------------------------------
 module mdio_top(
     input          dclk,      // 从clk_wiz_0获取的100MHz时钟
     input          sys_rst_n, // 系统复位，低电平有效
@@ -14,14 +6,11 @@ module mdio_top(
     inout          eth_mdio,  // PHY管理接口的双向数据信号
     
     input          key,       // 触摸按键
-    input  [1:0]   speed_set, // 速率配置输入 00:10M 01:100M 10:1000M
-    output         speed_flag,// 速率配置完成标志
     output         [1:0]  led,  // LED连接速率指示
     output         [1:0]  speed_mode  // 连接速率输出
     );
     
 // wire define
-wire          sys_clk;     // 系统时钟
 wire          op_exec;     // 触发开始信号
 wire          op_rh_wl;    // 低电平写，高电平读
 wire  [4:0]   op_addr;     // 寄存器地址
@@ -30,8 +19,18 @@ wire          op_done;     // 读写完成
 wire  [15:0]  op_rd_data;  // 读出的数据
 wire          op_rd_ack;   // 读应答信号 0:应答 1:未应答
 wire          dri_clk;     // 驱动时钟
+wire          key_pulse;   // 按键消抖后的脉冲信号
 
 assign speed_mode = led; // 新增speed_mode赋值
+
+/ 按键消抖模块
+key_debounce u_key_debounce(
+    .sys_clk    (dclk),
+    .sys_rst_n  (sys_rst_n),
+    .key        (key),
+    .key_filter  (key_pulse)
+);
+
 // MDIO接口驱动
 mdio_dri #(
     .PHY_ADDR    (5'h04),    // PHY地址 3'b100
@@ -57,7 +56,7 @@ mdio_dri #(
 mdio_ctrl  u_mdio_ctrl(
     .clk           (dri_clk  ),  
     .rst_n         (sys_rst_n),  
-    .soft_rst_trig (key      ),  
+    .soft_rst_trig (key_pulse      ),  
     .op_done       (op_done  ),  
     .op_rd_data    (op_rd_data),  
     .op_rd_ack     (op_rd_ack),  

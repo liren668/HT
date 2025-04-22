@@ -5,6 +5,7 @@
 // Version:             V0.1
 // Descriptions:        gmii_to_axi，两缓冲存储器结构。
 //2025.4.12 修改：末尾64字节对齐时，补零。last_tkeep用于保存最后一个tkeep值，加在axis_tdata最后一个64bit数据后面。
+//数据拼接成64b数据。
 //----------------------------------------------------------------------------------------
 
 module gmii_to_axi(
@@ -15,7 +16,7 @@ module gmii_to_axi(
     input             gmii_rx_dv,     // GMII数据有效
     input  [7:0]      gmii_rxd,       // GMII接收数据
     output reg        axis_tvalid,    // AXI有效信号
-    output reg [63:0] axis_tdata,
+    output reg [63:0] axis_tdata,     // AXI数据
     output reg        axis_tlast,     // 包结束标志
     output reg [7:0]  axis_tkeep,     // 字节有效掩码
     input             axis_tready     // 下游就绪信号

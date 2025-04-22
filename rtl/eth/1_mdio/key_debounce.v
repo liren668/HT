@@ -1,15 +1,7 @@
-//****************************************Copyright (c)***********************************//
-//原子哥在线教学平台：www.yuanzige.com
-//技术支持：http://www.openedv.com/forum.php
-//淘宝店铺：https://zhengdianyuanzi.tmall.com
-//关注微信公众平台微信号："正点原子"，免费获取ZYNQ & FPGA & STM32 & LINUX资料。
-//版权所有，盗版必究。
-//Copyright(C) 正点原子 2023-2033
-//All rights reserved                                  
 //----------------------------------------------------------------------------------------
 // File name:           key_debounce
-// Created by:          正点原子
-// Created date:        2023年2月16日14:20:02
+// Created by:          
+// Created date:        2025年4月17日14:20:02
 // Version:             V1.0
 // Descriptions:        按键消抖模块
 //

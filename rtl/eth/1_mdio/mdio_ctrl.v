@@ -1,10 +1,18 @@
+//****************************************Copyright (c)***********************************//
+//原子哥在线教学平台：www.yuanzige.com
+//技术支持：www.openedv.com
+//淘宝店铺：http://openedv.taobao.com 
+//关注微信公众平台微信号："正点原子"，免费获取ZYNQ & FPGA & STM32 & LINUX资料。
+//版权所有，盗版必究。
+//Copyright(C) 正点原子 2018-2028
+//All rights reserved                                  
 //----------------------------------------------------------------------------------------
 // File name:           mdio_ctrl
 // Last modified Date:  2020/2/6 17:25:36
 // Last Version:        V1.0
 // Descriptions:        MDIO接口读写控制
 //----------------------------------------------------------------------------------------
-// Created by:          
+// Created by:          正点原子
 // Created date:        2020/2/6 17:25:36
 // Version:             V1.0
 // Descriptions:        The original version
@@ -15,7 +23,6 @@ module mdio_ctrl(
     input                clk           ,
     input                rst_n         ,
     input                soft_rst_trig , //软复位触发信号
-    input        [1:0]   speed_set    , //速率配置输入
     input                op_done       , //读写完成
     input        [15:0]  op_rd_data    , //读出的数据
     input                op_rd_ack     , //读应答信号 0:应答 1:未应答
@@ -23,7 +30,6 @@ module mdio_ctrl(
     output  reg          op_rh_wl      , //低电平写，高电平读
     output  reg  [4:0]   op_addr       , //寄存器地址
     output  reg  [15:0]  op_wr_data    , //写入寄存器的数据
-    output  reg          speed_flag    , //速率配置完成标志
     output       [1:0]   led             //LED灯指示以太网连接状态
     );
 
@@ -95,7 +101,6 @@ always @(posedge clk or negedge rst_n) begin
         start_next <= 1'b0; 
         read_next <= 1'b0; 
         link_error <= 1'b0;
-        speed_flag <= 1'b0;
     end
     else begin
         op_exec <= 1'b0; 
@@ -106,35 +111,25 @@ always @(posedge clk or negedge rst_n) begin
                 if(rst_trig_flag) begin        //开始对MDIO接口进行软复位
                     op_exec <= 1'b1; 
                     op_rh_wl <= 1'b0; 
-                    op_addr <= 5'h0;
+					op_addr <= 5'h0;
                     op_wr_data <= 16'h9140;    //Bit[15]=1'b1,表示软复位
                     flow_cnt <= 3'd1;
                 end
                 else if(timer_done) begin      //定时完成,获取以太网连接状态
                     op_exec <= 1'b1; 
                     op_rh_wl <= 1'b1;
-                    op_addr <= 5'h01;          //地址
+					//op_addr <= 5'h05; 		   //用于仿真
+					op_addr <= 5'h01; 		//地址
                     flow_cnt <= 3'd2;
                 end
                 else if(start_next) begin      //开始读下一个寄存器，获取以太网通信速度
                     op_exec <= 1'b1; 
                     op_rh_wl <= 1'b1; 
-                    op_addr <= 5'h11;          //寄存器地址
+					op_addr <= 5'h11;		   //寄存器地址
+					//op_addr <= 5'h06;		   //用于仿真
                     flow_cnt <= 3'd2;
                     start_next <= 1'b0; 
                     read_next <= 1'b1; 
-                end
-                else if(speed_set != speed_status) begin  //速率配置
-                    op_exec <= 1'b1;
-                    op_rh_wl <= 1'b0;
-                    op_addr <= 5'h00;          //控制寄存器
-                    case(speed_set)
-                        2'b00: op_wr_data <= 16'h0000;  //10M
-                        2'b01: op_wr_data <= 16'h2000;  //100M
-                        2'b10: op_wr_data <= 16'h4000;  //1000M
-                        default: op_wr_data <= 16'h0000;
-                    endcase
-                    flow_cnt <= 3'd5;
                 end
             end    
             2'd1 : begin
@@ -176,12 +171,6 @@ always @(posedge clk or negedge rst_n) begin
                     speed_status <= 2'b01; //10Mbps
                 else
                     speed_status <= 2'b00; //其他情况  
-            end
-            3'd5: begin
-                if(op_done) begin
-                    flow_cnt <= 3'd0;
-                    speed_flag <= 1'b1;        //速率配置完成
-                end
             end
         endcase
     end    
