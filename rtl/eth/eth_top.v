@@ -9,108 +9,166 @@
 
 module eth_top(
     // 系统接口
-    input           dclk,           // 内部时钟100MHz
-    input           sys_rst_n,      // 系统复位,低电平有效
+    input           dclk,           //100M时钟
+    input           tx_clk_out,     //从收发器过来的时钟156.25M
+    input           sys_rst_n,      //系统复位
 
     // MDIO接口
-    output          eth_mdc,        // MDIO时钟
-    inout           eth_mdio,       // MDIO数据 
-    input           key,            // MDIO软复位触发
-    output   [1:0]  led,            // LED连接速率指示
+    output          eth_mdc,         //MDIO时钟
+    inout           eth_mdio,        //MDIO数据
+    input           key,             //按键
+    output   [1:0]  led,             //LED
 
     // RGMII接口
-    input           rgmii_rxc,      // 接收时钟2.5MHz,25MHz,125MHz
-    input           rgmii_rx_ctl,   // 接收控制
-    input    [3:0]  rgmii_rxd,      // 接收数据
-    output          rgmii_txc,      // 发送时钟2.5MHz,25MHz,125MHz   
-    output          rgmii_tx_ctl,   // 发送控制 
-    output   [3:0]  rgmii_txd,      // 发送数据
+    input           rgmii_rxc,       //RGMII接收时钟2.5M，25M，125M 
+    input           rgmii_rx_ctl,    //RGMII接收控制
+    input    [3:0]  rgmii_rxd,       //RGMII接收数据
+    output          rgmii_txc,       //RGMII发送时钟2.5M，25M，125M
+    output          rgmii_tx_ctl,    //RGMII发送控制
+    output   [3:0]  rgmii_txd,       //RGMII发送数据
 
-    // 时钟接口
-    input           tx_clk_out,     // 发送时钟
 
     // AXI接口
-    output          eth_to_axis_tvalid,  // 数据有效
-    output   [63:0] eth_to_axis_tdata,   // 数据
-    output          eth_to_axis_tlast,   // 最后一拍
-    output   [7:0]  eth_to_axis_tkeep,   // 字节有效
-    input           eth_to_axis_tready,  // 准备就绪
-    input           axis_to_eth_tvalid,    // 数据有效
-    input    [63:0] axis_to_eth_tdata,     // 数据
-    input           axis_to_eth_tlast,     // 最后一拍
-    input    [7:0]  axis_to_eth_tkeep      // 字节有效
+    output          eth_to_axis_tvalid, //AXI发送有效信号
+    output   [63:0] eth_to_axis_tdata,  //AXI发送数据
+    output          eth_to_axis_tlast,  //AXI发送结束信号
+    output   [7:0]  eth_to_axis_tkeep,  //AXI发送数据有效位宽
+    input           eth_to_axis_tready, //AXI接收准备信号
+    input           axis_to_eth_tvalid, //AXI接收有效信号
+    input    [63:0] axis_to_eth_tdata,  //AXI接收数据
+    input           axis_to_eth_tlast,  //AXI接收结束信号
+    input    [7:0]  axis_to_eth_tkeep   //AXI接收数据有效位宽
 );
 
-//wire define
-wire   [1:0]  speed_mode;             // 速率模式
+//mdio接口信号
+wire          key_pulse;        // 按键消抖后的脉冲信号
+wire          dri_clk;  
+wire          op_exec;
+wire          op_rh_wl;
+wire   [4:0]  op_addr;
+wire   [15:0] op_wr_data;
+wire          op_done;
+wire   [15:0] op_rd_data;
+wire          op_rd_ack;
 
-// GMII接口 
-wire          gmii_rx_clk;            // 接收时钟2.5MHz,25MHz,125MHz
-wire          gmii_rx_dv;             // 接收有效
-wire   [7:0]  gmii_rxd;               // 接收数据
-wire          gmii_tx_clk;            // 发送时钟2.5MHz,25MHz,125MHz  
-wire          gmii_tx_en;             // 发送有效
-wire   [7:0]  gmii_txd;              // 发送数据
+// GMII接口信号
+wire          gmii_rx_clk;
+wire          gmii_rx_dv;
+wire   [7:0]  gmii_rxd;
+wire          gmii_tx_clk;
+wire          gmii_tx_en;
+wire   [7:0]  gmii_txd;
+// wire          gmii_rx_er;       // GMII接收错误信号
+// wire          gmii_tx_er;       // GMII发送错误信号
 
-//*****************************************************
-//**                    main code
-//*****************************************************
-
-// 实例化MDIO顶层模块
-mdio_top u_mdio_top(
-    .dclk          (dclk),         // 使用clk_wiz_0的输出时钟
-    .sys_rst_n     (sys_rst_n),
-    .eth_mdc       (eth_mdc),
-    .eth_mdio      (eth_mdio),
-    .key           (key),
-    .led           (led),
-    .speed_mode    (speed_mode)
+//----------------------------------------------------------------------------------------
+// MDIO控制模块
+// 按键消抖模块
+key_debounce u_key_debounce(
+    .sys_clk    (dclk),
+    .sys_rst_n  (sys_rst_n),
+    .key        (key),
+    .key_filter  (key_pulse)
 );
 
-// GMII-RGMII转换
-gmii_to_rgmii u_gmii_to_rgmii(
-    // GMII接口
-    .gmii_rx_clk   (gmii_rx_clk),
-    .gmii_rx_dv    (gmii_rx_dv),
-    .gmii_rxd      (gmii_rxd),
-    .gmii_tx_clk   (gmii_tx_clk),
-    .gmii_tx_en    (gmii_tx_en), 
-    .gmii_txd      (gmii_txd),
-    // RGMII接口
-    .rgmii_rxc     (rgmii_rxc),
+// MDIO接口驱动
+mdio_dri #(
+    .PHY_ADDR    (5'h04),    // PHY地址 3'b100
+    .CLK_DIV     (6'd16)     // 分频系数
+    )
+    u_mdio_dri(
+    .clk        (dclk),
+    .rst_n      (sys_rst_n),
+    .op_exec    (op_exec   ),
+    .op_rh_wl   (op_rh_wl  ),   
+    .op_addr    (op_addr   ),   
+    .op_wr_data (op_wr_data),   
+    .op_done    (op_done   ),   
+    .op_rd_data (op_rd_data),   
+    .op_rd_ack  (op_rd_ack ),   
+    .dri_clk    (dri_clk   ),  
+                 
+    .eth_mdc    (eth_mdc   ),   
+    .eth_mdio   (eth_mdio  )   
+);      
+
+// MDIO接口读写控制    
+mdio_ctrl  u_mdio_ctrl(
+    .clk           (dri_clk  ),  
+    .rst_n         (sys_rst_n),  
+    .soft_rst_trig (key_pulse      ),  
+    .op_done       (op_done  ),  
+    .op_rd_data    (op_rd_data),  
+    .op_rd_ack     (op_rd_ack),  
+    .op_exec       (op_exec  ),  
+    .op_rh_wl      (op_rh_wl ),  
+    .op_addr       (op_addr  ),  
+    .op_wr_data    (op_wr_data),  
+    .led           (led      )
+);      
+
+//----------------------------------------------------------------------------------------
+// GMII-RGMII转换模块
+ 
+assign gmii_tx_clk = gmii_rx_clk;
+// 根据速率模式设置错误信号
+// assign gmii_tx_er = (speed_mode == 2'b11) ? 1'b1 : 1'b0;
+// assign gmii_rx_er = (speed_mode == 2'b11) ? 1'b1 : 1'b0;
+
+//RGMII接收
+rgmii_rx u_rgmii_rx(
+    .gmii_rx_clk   (gmii_rx_clk ),
+    .rgmii_rxc     (rgmii_rxc   ),
     .rgmii_rx_ctl  (rgmii_rx_ctl),
-    .rgmii_rxd     (rgmii_rxd),
-    .rgmii_txc     (rgmii_txc),
+    .rgmii_rxd     (rgmii_rxd   ),
+    // .gmii_rx_er    (gmii_rx_er  ),
+    .gmii_rx_dv    (gmii_rx_dv ),
+    .gmii_rxd      (gmii_rxd   )
+    );
+
+//RGMII发送
+rgmii_tx u_rgmii_tx(
+    .gmii_tx_clk   (gmii_tx_clk ),
+    .gmii_tx_en    (gmii_tx_en  ),
+    .gmii_txd      (gmii_txd    ),
+    // .gmii_tx_er    (gmii_tx_er  ),
+              
+    .rgmii_txc     (rgmii_txc   ),
     .rgmii_tx_ctl  (rgmii_tx_ctl),
-    .rgmii_txd     (rgmii_txd),
-    // 配置
-    .speed_mode    (speed_mode)
+    .rgmii_txd     (rgmii_txd   )
+    );
+
+//----------------------------------------------------------------------------------------
+// GMII-AXI转换模块
+// 参数定义
+
+// GMII到AXI转换
+gmii_to_axi #(
+    .NODE_ID(NODE_ID),
+    .ETH_TYPE(ETH_TYPE)
+) u_gmii_to_axi(
+    .gmii_rx_clk    (gmii_rx_clk),
+    .tx_clk_out     (tx_clk_out),
+    .rst_n          (sys_rst_n),
+    .gmii_rx_dv     (gmii_rx_dv),
+    .gmii_rxd       (gmii_rxd),
+    .axis_tvalid    (eth_to_axis_tvalid),
+    .axis_tdata     (eth_to_axis_tdata),
+    .axis_tlast     (eth_to_axis_tlast),
+    .axis_tkeep     (eth_to_axis_tkeep),
+    .axis_tready    (eth_to_axis_tready)
 );
 
-// GMII-AXI转换
-gmii8b_axi64b_top u_gmii8b_axi64b_top(
-    // 系统接口
-    .sys_rst_n     (sys_rst_n),
-    .tx_clk_out    (tx_clk_out),
-    
-    // GMII接口
-    .gmii_rx_clk   (gmii_rx_clk),
-    .gmii_rx_dv    (gmii_rx_dv),
-    .gmii_rxd      (gmii_rxd),
-    .gmii_tx_clk   (gmii_tx_clk),
-    .gmii_tx_en    (gmii_tx_en),
-    .gmii_txd      (gmii_txd),
-    
-    // AXI接口
-    .rgmii_axis_tvalid (rgmii_axis_tvalid),
-    .rgmii_axis_tdata  (rgmii_axis_tdata),
-    .rgmii_axis_tlast  (rgmii_axis_tlast),
-    .rgmii_axis_tkeep  (rgmii_axis_tkeep),
-    .rgmii_axis_tready (rgmii_axis_tready),
-    .sfp_axis_tvalid   (sfp_axis_tvalid),
-    .sfp_axis_tdata    (sfp_axis_tdata),
-    .sfp_axis_tlast    (sfp_axis_tlast),
-    .sfp_axis_tkeep    (sfp_axis_tkeep)
+// AXI到GMII转换
+axi_to_gmii u_axi_to_gmii(    
+    .rst_n          (sys_rst_n),
+    .tx_clk_out     (tx_clk_out),
+    .gmii_tx_clk    (gmii_tx_clk),
+    .axis_tvalid    (axis_to_eth_tvalid),
+    .axis_tdata     (axis_to_eth_tdata),
+    .axis_tlast     (axis_to_eth_tlast),
+    .axis_tkeep     (axis_to_eth_tkeep),
+    .gmii_tx_en     (gmii_tx_en),
+    .gmii_txd       (gmii_txd)
 );
-
 endmodule

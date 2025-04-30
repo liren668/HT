@@ -4,7 +4,7 @@
 // Created date:        2025.4
 // Version:             V0.1
 // Descriptions:        Hybrid_Transport
-//各种数据混合传输的top。
+//各种数据混合传输的top。各种数据轮询发送和接收。
 //----------------------------------------------------------------------------------------
 
 module ht_top(
@@ -43,6 +43,16 @@ module ht_top(
     output  [1:0]   tx_disable     // 发送使能    
 );
 
+// 添加本地节点信息定义
+parameter LOCAL_NODE_INFO = 8'h11;  // 本地节点信息 00011001
+
+// 添加数据类型定义
+parameter DATA_TYPE_ETH = 4'h1;      // 以太网类型 0001
+parameter DATA_TYPE_AUX = 4'h8;      // 辅助数据类型 1000
+
+//交互信息寄存器
+reg [8:0] nodes_info_reg [0:15];  //保存各节点信息，0用于根节点，1-15号子节点。
+
 //reg define
 reg  [27:0] dely_500ms ;
 reg  [2:0]  S_RESET;            //状态信号
@@ -50,10 +60,13 @@ reg  [15:0] cnt_rst;
 reg         rst_n;
 reg         gtwiz_reset_rx_datapath;
 
-//wire define
+
+//wire define收发器
 wire        stat_rx_status;
 wire        tx_reset;
 wire        rx_reset;
+wire        gt0_rst;
+wire        gtpowergood_out_0;        // GT电源状态信号
 
 // 时钟和复位
 wire          clk_ila;                // ILA调试时钟62.5MHz
@@ -62,18 +75,42 @@ wire          dclk;                   // 内部时钟100MHz
 wire          locked;                 // 时钟锁定
 wire          tx_clk_out;             // 发送时钟
 wire          gt_refclk_out;          // 参考时钟
-wire   [1:0]  speed_mode;             // 速率模式
 
-// AXI接口
-wire          axis_to_sfp_tvalid;      // 数据有效
-wire   [63:0] axis_to_sfp_tdata;       // 数据
-wire          axis_to_sfp_tlast;       // 最后一拍
-wire   [7:0]  axis_to_sfp_tkeep;       // 字节有效
-wire          axis_to_sfp_tready;      // 
-wire          sfp_to_axis_tvalid;        // 数据有效
-wire   [63:0] sfp_to_axis_tdata;         // 数据
-wire          sfp_to_axis_tlast;         // 最后一拍
-wire   [7:0]  sfp_to_axis_tkeep;         // 字节有效
+// AXI发送接口（发送到SFP）
+reg           axis_to_sfp_tvalid;      // 数据有效信号
+reg    [63:0] axis_to_sfp_tdata;       // 发送数据
+reg           axis_to_sfp_tlast;       // 最后一拍标志
+reg    [7:0]  axis_to_sfp_tkeep;       // 字节有效标志
+wire          axis_to_sfp_tready;      // 接收端准备就绪
+
+// AXI接收接口（从SFP接收）
+wire          sfp_to_axis_tvalid;      // 数据有效
+wire   [63:0] sfp_to_axis_tdata;       // 接收数据从SFP 
+wire          sfp_to_axis_tlast;       // 最后一拍
+wire   [7:0]  sfp_to_axis_tkeep;       // 字节有效
+
+// AXI数据分支接口,从AXI总接口选择分支，eth,aux,hdmi,usb等。
+wire          eth_to_axis_tvalid;      // 数据有效
+wire   [63:0] eth_to_axis_tdata;       // 以太网数据发送axi
+wire          eth_to_axis_tlast;       // 最后一拍
+wire   [7:0]  eth_to_axis_tkeep;       // 字节有效
+reg           axis_to_eth_tvalid;      // 数据有效
+reg    [63:0] axis_to_eth_tdata;       // axi数据接收eth
+reg           axis_to_eth_tlast;       // 最后一拍
+reg    [7:0]  axis_to_eth_tkeep;       // 字节有效
+//aux数据分支接口,用于信息交互。
+wire          aux_to_axis_tvalid;      // 数据有效
+wire   [63:0] aux_to_axis_tdata;       // 辅助数据发送axi
+wire          aux_to_axis_tlast;       // 最后一拍
+wire   [7:0]  aux_to_axis_tkeep;       // 字节有效
+wire          aux_to_axis_tready;      // 发送器准备就绪
+reg           axis_to_aux_tvalid;      // 数据有效
+reg    [63:0] axis_to_aux_tdata;       // axi数据发送aux
+reg           axis_to_aux_tlast;       // 最后一拍
+reg    [7:0]  axis_to_aux_tkeep;       // 字节有效
+
+// 控制计数器
+reg    [3:0]  send_type_cnt;           // 发送类型计数器
 
 //*****************************************************
 //**                    main code
@@ -182,6 +219,166 @@ always @(posedge dclk)begin
         endcase  
     end
 end
+
+// 发送轮询逻辑
+always @(posedge tx_clk_out or negedge sys_rst_n) begin
+    if (!sys_rst_n) begin
+        axis_to_sfp_tvalid <= 1'b0;
+        axis_to_sfp_tdata <= 64'h0;
+        axis_to_sfp_tlast <= 1'b0;
+        axis_to_sfp_tkeep <= 8'h0;
+        send_type_cnt <= 4'd0;
+    end else begin
+        // 根据LOCAL_NODE_INFO低4位中1的位置轮询发送
+        case (send_type_cnt)
+            4'd0: begin  // 第0类数据，eth数据
+                if (LOCAL_NODE_INFO[0]) begin
+                    if (eth_to_axis_tvalid) begin  // 有效数据时发送正常数据
+                        axis_to_sfp_tvalid <= 1'b1;
+                        axis_to_sfp_tdata <= eth_to_axis_tdata;
+                        axis_to_sfp_tlast <= eth_to_axis_tlast;
+                        axis_to_sfp_tkeep <= eth_to_axis_tkeep;
+                    end else begin  // 无效数据时发送节点信息
+                        axis_to_sfp_tvalid <= 1'b1;
+                        axis_to_sfp_tdata <= {56'h0, LOCAL_NODE_INFO[7:4], 4'h0};
+                        axis_to_sfp_tlast <= eth_to_axis_tlast;
+                        axis_to_sfp_tkeep <= 8'h00;
+                    end
+                end else begin
+                    axis_to_sfp_tvalid <= 1'b0;
+                end
+                // 找下一个置1位
+                send_type_cnt <= (LOCAL_NODE_INFO[1]) ? 4'd1 :
+                               (LOCAL_NODE_INFO[2]) ? 4'd2 :
+                               (LOCAL_NODE_INFO[3]) ? 4'd3 : 4'd0;
+            end
+            // 4'd1: begin  // 第1类数据
+            //     if (LOCAL_NODE_INFO[1] && data2_valid) begin
+            //         axis_to_sfp_tvalid <= 1'b1;
+            //         axis_to_sfp_tdata <= {data2_data[63:8], LOCAL_NODE_INFO};
+            //         axis_to_sfp_tlast <= data2_last;
+            //         axis_to_sfp_tkeep <= data2_keep;
+            //     end else begin
+            //         axis_to_sfp_tvalid <= 1'b0;
+            //     end
+            //     // 找下一个置1位
+            //     send_type_cnt <= (LOCAL_NODE_INFO[2]) ? 4'd2 :
+            //                    (LOCAL_NODE_INFO[3]) ? 4'd3 :
+            //                    (LOCAL_NODE_INFO[0]) ? 4'd0 : 4'd1;
+            // end
+            // 4'd2: begin  // 第2类数据
+            //     if (LOCAL_NODE_INFO[2] && data3_valid) begin
+            //         axis_to_sfp_tvalid <= 1'b1;
+            //         axis_to_sfp_tdata <= {data3_data[63:8], LOCAL_NODE_INFO};
+            //         axis_to_sfp_tlast <= data3_last;
+            //         axis_to_sfp_tkeep <= data3_keep;
+            //     end else begin
+            //         axis_to_sfp_tvalid <= 1'b0;
+            //     end
+            //     // 找下一个置1位
+            //     send_type_cnt <= (LOCAL_NODE_INFO[3]) ? 4'd3 :
+            //                    (LOCAL_NODE_INFO[0]) ? 4'd0 :
+            //                    (LOCAL_NODE_INFO[1]) ? 4'd1 : 4'd2;
+            // end
+            // 4'd3: begin  // 第3类数据(辅助数据)
+            //     if (LOCAL_NODE_INFO[3] && aux_to_axis_tvalid) begin
+            //         axis_to_sfp_tvalid <= 1'b1;
+            //         axis_to_sfp_tdata <= {aux_to_axis_tdata[63:8], LOCAL_NODE_INFO};
+            //         axis_to_sfp_tlast <= aux_to_axis_tlast;
+            //         axis_to_sfp_tkeep <= aux_to_axis_tkeep;
+            //     end else begin
+            //         axis_to_sfp_tvalid <= 1'b0;
+            //     end
+            //     // 找下一个置1位
+            //     send_type_cnt <= (LOCAL_NODE_INFO[0]) ? 4'd0 :
+            //                    (LOCAL_NODE_INFO[1]) ? 4'd1 :
+            //                    (LOCAL_NODE_INFO[2]) ? 4'd2 : 4'd3;
+            // end
+            default: send_type_cnt <= 4'd0;
+                        
+        endcase
+        
+        // 当LOCAL_NODE_INFO全为0时，发送空闲数据
+        if (LOCAL_NODE_INFO[3:0] == 4'h0) begin
+            axis_to_sfp_tvalid <= 1'b1;
+            axis_to_sfp_tdata <= {56'h0, LOCAL_NODE_INFO[7:4],4'h0};
+            axis_to_sfp_tlast <= 1'b1;
+            axis_to_sfp_tkeep <= 8'h01;
+        end
+    end
+end
+
+// 接收端数据分发逻辑
+always @(posedge tx_clk_out or negedge sys_rst_n) begin
+    if (!sys_rst_n) begin
+        axis_to_eth_tvalid <= 1'b0;
+        axis_to_eth_tdata <= 64'h0;
+        axis_to_eth_tlast <= 1'b0;
+        axis_to_eth_tkeep <= 8'h0;
+
+        axis_to_aux_tvalid <= 1'b0;
+        axis_to_aux_tdata <= 64'h0;
+        axis_to_aux_tlast <= 1'b0;
+        axis_to_aux_tkeep <= 8'h0;
+    end else begin
+        if (sfp_to_axis_tvalid) begin
+            case (sfp_to_axis_tdata[7:4])  // 检查数据类型
+                DATA_TYPE_ETH: begin  // 以太网数据
+                    axis_to_eth_tvalid <= 1'b1;
+                    axis_to_eth_tdata <= sfp_to_axis_tdata;
+                    axis_to_eth_tlast <= sfp_to_axis_tlast;
+                    axis_to_eth_tkeep <= sfp_to_axis_tkeep;
+                end
+                DATA_TYPE_AUX: begin  // 辅助数据
+                    axis_to_aux_tvalid <= 1'b1;
+                    axis_to_aux_tdata <= sfp_to_axis_tdata;
+                    axis_to_aux_tlast <= sfp_to_axis_tlast;
+                    axis_to_aux_tkeep <= sfp_to_axis_tkeep;
+                end
+                default: begin
+                    axis_to_eth_tvalid <= 1'b0;
+                    axis_to_aux_tvalid <= 1'b0;
+                end
+            endcase
+        end else begin
+            axis_to_eth_tvalid <= 1'b0;
+            axis_to_aux_tvalid <= 1'b0;
+        end
+    end
+end
+
+// 实例化以太网控制模块
+eth_top u_eth_top(
+    // 系统接口
+    .dclk          (dclk),           // 内部时钟100MHz
+    .sys_rst_n     (sys_rst_n),      // 系统复位,低电平有效
+    .tx_clk_out    (tx_clk_out),     // 发送时钟
+
+    // MDIO接口
+    .eth_mdc       (eth_mdc),        // MDIO时钟
+    .eth_mdio      (eth_mdio),       // MDIO数据 
+    .key           (key),            // MDIO软复位触发
+    .led           (led),            // LED连接速率指示
+
+    // RGMII接口
+    .rgmii_rxc     (rgmii_rxc),      // 接收时钟2.5MHz,25MHz,125MHz
+    .rgmii_rx_ctl  (rgmii_rx_ctl),   // 接收控制
+    .rgmii_rxd     (rgmii_rxd),      // 接收数据
+    .rgmii_txc     (rgmii_txc),      // 发送时钟2.5MHz,25MHz,125MHz   
+    .rgmii_tx_ctl  (rgmii_tx_ctl),   // 发送控制 
+    .rgmii_txd     (rgmii_txd),      // 发送数据
+
+    // AXI接口
+    .eth_to_axis_tvalid (eth_to_axis_tvalid),  // 数据有效
+    .eth_to_axis_tdata  (eth_to_axis_tdata),   // 数据
+    .eth_to_axis_tlast  (eth_to_axis_tlast),   // 最后一拍
+    .eth_to_axis_tkeep  (eth_to_axis_tkeep),   // 字节有效
+    .eth_to_axis_tready (eth_to_axis_tready),  // 准备就绪
+    .axis_to_eth_tvalid (axis_to_eth_tvalid),  // 数据有效
+    .axis_to_eth_tdata  (axis_to_eth_tdata),   // 数据
+    .axis_to_eth_tlast  (axis_to_eth_tlast),   // 最后一拍
+    .axis_to_eth_tkeep  (axis_to_eth_tkeep)    // 字节有效
+);
 
 // 以太网核例化
 xxv_ethernet_0 u_xxv_ethernet_0 (
@@ -347,38 +544,4 @@ xxv_ethernet_0 u_xxv_ethernet_0 (
   
   .ctl_tx_custom_preamble_enable_0  (1'b1)     // input wire ctl_tx_custom_preamble_enable_0
 );
-
-// 实例化以太网控制模块
-eth_top u_eth_top(
-    .dclk          (dclk),
-    .sys_rst_n     (sys_rst_n),
-    .eth_mdc       (eth_mdc),
-    .eth_mdio      (eth_mdio),
-    .key           (key),
-    .led           (led),
-    .rgmii_rxc     (rgmii_rxc),
-    .rgmii_rx_ctl  (rgmii_rx_ctl),
-    .rgmii_rxd     (rgmii_rxd),
-    .rgmii_txc     (rgmii_txc),
-    .rgmii_tx_ctl  (rgmii_tx_ctl),
-    .rgmii_txd     (rgmii_txd),
-    .tx_clk_out    (tx_clk_out),
-    .eth_to_axis_tvalid (axis_to_sfp_tvalid),
-    .eth_to_axis_tdata  (axis_to_sfp_tdata),
-    .eth_to_axis_tlast  (axis_to_sfp_tlast),
-    .eth_to_axis_tkeep  (axis_to_sfp_tkeep),
-    .eth_to_axis_tready (axis_to_sfp_tready),
-    .axis_to_eth_tvalid (sfp_to_axis_tvalid),
-    .axis_to_eth_tdata  (sfp_to_axis_tdata),
-    .axis_to_eth_tlast  (sfp_to_axis_tlast),
-    .axis_to_eth_tkeep  (sfp_to_axis_tkeep)
-);
-
-//实例化HDMI接口
-// hdmi_top u_hdmi_top(
-//     .dclk          (dclk),
-//     .sys_rst_n     (sys_rst_n),
-//     .hdmi_rx_p     (hdmi_rx_p),
-//     .hdmi_rx_n     (hdmi_rx_n),
-// );
 endmodule

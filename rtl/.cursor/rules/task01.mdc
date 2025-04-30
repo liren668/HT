@@ -1,0 +1,129 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+###############################################
+# MDC File for Hybrid_Transport Project
+# Author: 珊瑚伊斯特
+# Version: 1.1
+# Description: 混合传输系统设计规范与约束
+###############################################
+
+# 1. 系统架构规范
+set_project_rule "ARCHITECTURE" {
+    # 数据类型定义
+    set DATA_TYPES {
+        ETH  "0001" "以太网数据"
+        HDMI "0010" "HDMI数据"
+        USB  "0100" "USB数据"
+        AUX  "1000" "辅助信息数据(必须)"
+    }
+    
+    # 数据格式规范
+    set DATA_FORMAT {
+        WIDTH     64  "总数据位宽"
+        VALID     56  "有效数据位宽"
+        NODE_INFO 8   "节点信息位宽"
+        NODE_ID   4   "节点号位宽"
+        TYPE_ID   4   "数据类型位宽"
+    }
+
+    # GT收发器要求
+    set GT_REQUIREMENTS {
+        MUST_KEEP    "必须保留GT收发器IP核"
+        DESCRIPTION  "GT收发器IP核是光纤通信中最关键的部分"
+        INTERFACE    "64bit AXI stream接口"
+    }
+}
+
+# 2. 时钟域处理规范
+set_project_rule "CLOCK_DOMAIN" {
+    # FIFO跨时钟要求
+    set_requirement "必须使用FIFO处理所有跨时钟域数据传输"
+    set_requirement "AUX数据除外,无需FIFO缓存"
+    
+    # 数据补齐要求
+    set_requirement "各类型数据不够64bit需要补0"
+}
+
+# 3. 节点通信协议
+set_project_rule "NODE_PROTOCOL" {
+    # 设备注册流程
+    set_protocol "DEVICE_REGISTRATION" {
+        step1 "发送本节点设备信息"
+        step2 "接收对端节点设备信息"
+        step3 "确认共同设备类型"
+        step4 "建立通信连接"
+    }
+    
+    # 数据帧格式
+    set_frame_format {
+        field1 "节点号[7:4]"
+        field2 "数据类型[3:0]"
+        field3 "有效数据[63:8]"
+    }
+
+    # AUX数据更新机制
+    set_aux_update {
+        trigger "设备状态变更时"
+        action  "同步更新到对端"
+        check   "防止向不存在的设备发送数据"
+    }
+}
+
+# 4. 数据传输规范
+set_project_rule "DATA_TRANSFER" {
+    # 发送端要求
+    set_tx_requirements {
+        req1 "除AUX外所有数据类型必须使用FIFO"
+        req2 "轮询方式发送各类数据"
+        req3 "单次发送固定为64bit"
+        req4 "有效数据最大56bit"
+        req5 "数据拼接:数据+节点信息(8bit)=64bit"
+        req6 "FIFO有数据时提出发送申请"
+    }
+    
+    # 接收端要求
+    set_rx_requirements {
+        req1 "除AUX外所有数据类型必须使用FIFO"
+        req2 "FIFO达到指定深度后才开始发送"
+        req3 "确保数据包完整性"
+        req4 "保证连续输出"
+    }
+}
+
+# 5. 实现方式要求
+set_project_rule "IMPLEMENTATION" {
+    # 状态机要求
+    set_state_machine {
+        requirement "尽量使用状态机实现"
+        application "数据收发控制"
+        application "设备注册流程"
+        application "FIFO控制"
+    }
+}
+
+# 6. 扩展性要求
+set_project_rule "EXTENSIBILITY" {
+    # 预留接口
+    set_interface_reserve {
+        HDMI  "预留HDMI接口"
+        USB   "预留USB接口"
+        OTHER "预留其他数据类型接口"
+    }
+    
+    # 数据类型扩展
+    set_type_extension {
+        format "4bit类型编码"
+        range  "支持最多16种数据类型"
+    }
+
+    # 初期实现
+    set_initial_phase {
+        data_type1 "以太网数据"
+        data_type2 "AUX辅助信息数据"
+        note "后期可扩展其他数据类型"
+    }
+
+}
