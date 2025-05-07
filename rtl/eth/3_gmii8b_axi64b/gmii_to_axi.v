@@ -29,7 +29,10 @@ reg [2:0]  wr_cnt;              // 字节计数器（0-7）
 reg [2:0]  valid_bytes [0:1];   // 各缓冲有效字节数
 reg        pkt_end [0:1];       // 包结束标志
 reg        gmii_rx_dv0;
-reg        gmii_rx_dv1;
+// reg        gmii_rx_dv1;
+
+// 跨时钟域同步信号声明
+(* ASYNC_REG = "TRUE" *) reg [1:0] sync_wr_buf_sel; // 写指针同步链
 
 // 写控制逻辑
 always @(posedge gmii_rx_clk or negedge rst_n) begin
@@ -37,7 +40,7 @@ always @(posedge gmii_rx_clk or negedge rst_n) begin
         gmii_rx_dv0 <= 1'b0;
     end else begin
         gmii_rx_dv0 <= gmii_rx_dv;
-        gmii_rx_dv1 <= gmii_rx_dv0;
+        // gmii_rx_dv1 <= gmii_rx_dv0;
     end
 end
 always @(posedge gmii_rx_clk or negedge rst_n) begin
@@ -72,7 +75,8 @@ always @(posedge gmii_rx_clk or negedge rst_n) begin
                 pkt_end[wr_buf_sel] <= 1'b1;
                 wr_cnt <= 0;
                 wr_buf_sel <= ~wr_buf_sel;
-            end else begin                              // 正好8字节对齐结束
+            end 
+            else begin                              // 正好8字节对齐结束
                 // valid_bytes[wr_buf_sel] <= 3'd0;
                 pkt_end[~wr_buf_sel] <= 1'b1;
             end    
@@ -89,9 +93,6 @@ end
 
 // ==================== 读时钟域逻辑（156.25MHz）====================
 reg        rd_buf_sel;          // 读缓冲选择（0/1）
-reg        last_delay;  // 用于延时tlast信号
-(* ASYNC_REG = "TRUE" *) reg [1:0] sync_wr_buf_sel; // 写指针同步链
-
 
 always @(posedge tx_clk_out or negedge rst_n) begin
     if (!rst_n) begin
@@ -100,7 +101,6 @@ always @(posedge tx_clk_out or negedge rst_n) begin
         axis_tdata <= 64'd0;
         axis_tlast <= 1'b0;
         axis_tkeep <= 8'h00;
-        last_delay <= 1'b0;
     end else begin
         if (axis_tready) begin  // 只有在下游准备好时才发送数据
             if (sync_wr_buf_sel[1] != rd_buf_sel) begin
@@ -119,13 +119,10 @@ always @(posedge tx_clk_out or negedge rst_n) begin
                     default: axis_tdata <= {buffer[rd_buf_sel][63:8], {node_id, eth_type}};
                 endcase
 
-                last_delay <= pkt_end[rd_buf_sel];  // 延时一个周期
-                axis_tlast <= 1'b0;  // 使用延时的last信号
+                axis_tlast <= pkt_end[rd_buf_sel];  
                 rd_buf_sel <= ~rd_buf_sel;
-            end else if(last_delay) begin
-                axis_tlast <= last_delay;
-                axis_tvalid <= 1'b0;
-            end else begin
+            end
+            else begin
                 axis_tvalid <= 1'b0;  // 没有新数据时拉低valid
             end
         end else begin

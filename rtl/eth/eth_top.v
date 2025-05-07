@@ -9,9 +9,14 @@
 
 module eth_top(
     // 系统接口
+    input           clk_ila,        //ILA调试时钟250M
     input           dclk,           //100M时钟
     input           tx_clk_out,     //从收发器过来的时钟156.25M
     input           sys_rst_n,      //系统复位
+
+    // 节点信息接口
+    input    [3:0]  node_id,        // 节点ID输入
+    input    [3:0]  eth_type,       // 以太网类型输入   
 
     // MDIO接口
     output          eth_mdc,         //MDIO时钟
@@ -36,7 +41,7 @@ module eth_top(
     input           eth_to_axis_tready, //AXI接收准备信号
     input           axis_to_eth_tvalid, //AXI接收有效信号
     input    [63:0] axis_to_eth_tdata,  //AXI接收数据
-    input           axis_to_eth_tlast,  //AXI接收结束信号
+    // input           axis_to_eth_tlast,  //AXI接收结束信号
     input    [7:0]  axis_to_eth_tkeep   //AXI接收数据有效位宽
 );
 
@@ -60,6 +65,31 @@ wire          gmii_tx_en;
 wire   [7:0]  gmii_txd;
 // wire          gmii_rx_er;       // GMII接收错误信号
 // wire          gmii_tx_er;       // GMII发送错误信号
+
+//ILA调试时钟
+// wire          clk_ila1;
+
+//----------------------------------------------------------------------------------------
+
+//ILA调试 时钟缓存
+// BUFG BUFG_inst (
+//     .I            (clk_ila),      // 1-bit input: Clock input
+//     .O            (clk_ila1)  // 1-bit output: Clock output
+// );
+
+// ILA
+//ILA实例化
+ila_0 u_ila_0 (
+    .clk(clk_ila),              // input wire clk
+    .probe0(axis_to_eth_tvalid),   // input wire [63:0]  probe0  
+    .probe1(axis_to_eth_tdata),  // input wire [7:0]  probe1 
+    .probe2(axis_to_eth_tkeep),   // input wire [0:0]  probe2 
+    .probe3(tx_clk_out),     // input wire [63:0]  probe3 
+    .probe4(eth_to_axis_tvalid),    // input wire [0:0]  probe4 
+    .probe5(eth_to_axis_tdata),     // input wire [0:0]  probe5 
+    .probe6(eth_to_axis_tkeep),   // input wire [7:0]  probe6 
+    .probe7(eth_to_axis_tlast)   // input wire [7:0]  probe6 
+);
 
 //----------------------------------------------------------------------------------------
 // MDIO控制模块
@@ -142,16 +172,15 @@ rgmii_tx u_rgmii_tx(
 // GMII-AXI转换模块
 // 参数定义
 
-// GMII到AXI转换
-gmii_to_axi #(
-    .NODE_ID(NODE_ID),
-    .ETH_TYPE(ETH_TYPE)
-) u_gmii_to_axi(
+// GMII到AXI-Stream转换模块实例化
+gmii_to_axi u_gmii_to_axi (
     .gmii_rx_clk    (gmii_rx_clk),
     .tx_clk_out     (tx_clk_out),
     .rst_n          (sys_rst_n),
     .gmii_rx_dv     (gmii_rx_dv),
     .gmii_rxd       (gmii_rxd),
+    .node_id        (node_id),      // 直接连接节点ID输入
+    .eth_type       (eth_type),     // 直接连接以太网类型输入
     .axis_tvalid    (eth_to_axis_tvalid),
     .axis_tdata     (eth_to_axis_tdata),
     .axis_tlast     (eth_to_axis_tlast),
@@ -166,7 +195,7 @@ axi_to_gmii u_axi_to_gmii(
     .gmii_tx_clk    (gmii_tx_clk),
     .axis_tvalid    (axis_to_eth_tvalid),
     .axis_tdata     (axis_to_eth_tdata),
-    .axis_tlast     (axis_to_eth_tlast),
+    // .axis_tlast     (axis_to_eth_tlast),
     .axis_tkeep     (axis_to_eth_tkeep),
     .gmii_tx_en     (gmii_tx_en),
     .gmii_txd       (gmii_txd)

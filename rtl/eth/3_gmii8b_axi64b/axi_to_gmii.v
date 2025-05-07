@@ -78,7 +78,7 @@ always @(posedge tx_clk_out or negedge rst_n) begin
         
         if (axis_tvalid) begin
             // 新数据到达，更新寄存器
-            data_reg <=     ;
+            data_reg <= axis_tdata;
             keep_reg <= axis_tkeep;
             valid_reg <= 1'b1;
             byte_cnt <= 3'd0;

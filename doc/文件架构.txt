@@ -1,0 +1,58 @@
+Hybrid_Transport/
+├── rtl/                      # RTL设计文件目录
+│   ├── ht_top.v             # 顶层模块，混合传输控制
+│   │
+│   ├── eth/                 # 以太网相关模块
+│   │   ├── eth_top.v       # 以太网顶层模块
+│   │   ├── mdio/           # MDIO接口控制
+│   │   │   ├── mdio_dri.v  # MDIO驱动
+│   │   │   └── mdio_ctrl.v # MDIO控制器
+│   │   │
+│   │   ├── rgmii/         # RGMII接口
+│   │   │   ├── rgmii_rx.v # RGMII接收
+│   │   │   └── rgmii_tx.v # RGMII发送
+│   │   │
+│   │   └── axi/           # GMII-AXI转换
+│   │       ├── gmii_to_axi.v # GMII转AXI
+│   │       └── axi_to_gmii.v # AXI转GMII
+│   │
+│   ├── util/              # 通用模块
+│   │   └── key_debounce.v # 按键消抖
+│   │
+│   └── ip/                # IP核
+│       ├── clk_wiz_0/    # 时钟管理IP
+│       └── ila_0/        # 调试IP核
+
+
+主要模块说明：
+eth_top.v 功能：
+
+整合以太网相关功能
+MDIO接口控制
+RGMII收发接口
+GMII-AXI转换
+接口定义：
+
+系统接口：
+
+clk_ila (250MHz)
+dclk (100MHz)
+tx_clk_out (156.25MHz)
+sys_rst_n
+MDIO接口：
+
+eth_mdc/mdio
+key/led控制
+RGMII接口：
+
+rgmii_rx* (接收)
+rgmii_tx* (发送)
+AXI接口：
+
+eth_to_axis_* (发送)
+axis_to_eth_* (接收)
+内部连接：
+
+GMII作为中间接口
+RGMII与GMII转换
+GMII与AXI转换
