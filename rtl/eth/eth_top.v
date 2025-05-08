@@ -79,17 +79,20 @@ wire   [7:0]  gmii_txd;
 
 // ILA
 //ILA实例化
-ila_0 u_ila_0 (
-    .clk(clk_ila),              // input wire clk
-    .probe0(axis_to_eth_tvalid),   // input wire [63:0]  probe0  
-    .probe1(axis_to_eth_tdata),  // input wire [7:0]  probe1 
-    .probe2(axis_to_eth_tkeep),   // input wire [0:0]  probe2 
-    .probe3(tx_clk_out),     // input wire [63:0]  probe3 
-    .probe4(eth_to_axis_tvalid),    // input wire [0:0]  probe4 
-    .probe5(eth_to_axis_tdata),     // input wire [0:0]  probe5 
-    .probe6(eth_to_axis_tkeep),   // input wire [7:0]  probe6 
-    .probe7(eth_to_axis_tlast)   // input wire [7:0]  probe6 
-);
+// ila_0 u_ila_0 (
+//     .clk(clk_ila),              // input wire clk
+//     .probe0(axis_to_eth_tvalid),   // input wire [63:0]  probe0  
+//     .probe1(axis_to_eth_tdata),  // input wire [7:0]  probe1 
+//     .probe2(axis_to_eth_tkeep),   // input wire [0:0]  probe2 
+//     .probe3(tx_clk_out),     // input wire [63:0]  probe3 
+//     .probe4(gmii_rxd),    // input wire [0:0]  probe4 
+//     .probe5(gmii_rx_dv),     // input wire [0:0]  probe5 
+//     .probe6(gmii_tx_en),   // input wire [7:0]  probe6 
+//     .probe7(gmii_txd),   // input wire [7:0]  probe6 
+//     .probe8(axis_to_eth_tvalid),   // input wire [7:0]  probe6 
+//     .probe9(axis_to_eth_tdata),   // input wire [7:0]  probe6 
+//     .probe10(axis_to_eth_tkeep)   // input wire [7:0]  probe6 
+// );
 
 //----------------------------------------------------------------------------------------
 // MDIO控制模块
@@ -198,6 +201,7 @@ axi_to_gmii u_axi_to_gmii(
     // .axis_tlast     (axis_to_eth_tlast),
     .axis_tkeep     (axis_to_eth_tkeep),
     .gmii_tx_en     (gmii_tx_en),
-    .gmii_txd       (gmii_txd)
+    .gmii_txd       (gmii_txd),
+    .clk_ila        (clk_ila)
 );
 endmodule

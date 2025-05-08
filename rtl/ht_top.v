@@ -134,21 +134,21 @@ BUFG BUFG_inst (
 );
 
 //ILA实例化
-ila_1 u_ila_1 (
-    .clk(clk_ila1),              // input wire clk
-    .probe0(eth_to_axis_tvalid_reg),   // input wire [63:0]  probe0  
-    .probe1(eth_to_axis_tdata_reg),  // input wire [7:0]  probe1 
-    .probe2(eth_to_axis_tkeep_reg),   // input wire [0:0]  probe2 
-    .probe3(tx_clk_out),     // input wire [63:0]  probe3 
-    .probe4(axis_to_sfp_tvalid),    // input wire [0:0]  probe4 
-    .probe5(axis_to_sfp_tdata),     // input wire [0:0]  probe5 
-    .probe6(axis_to_sfp_tkeep),   // input wire [7:0]  probe6 
-    .probe7(axis_to_sfp_tlast),   // input wire [7:0]  probe6 
-    .probe8(eth_to_axis_tlast_reg),   // input wire [7:0]  probe6 
-    .probe9(axis_to_sfp_tvalid_d0)   // input wire [7:0]  probe6 
+// ila_1 u_ila_1 (
+//     .clk(clk_ila1),              // input wire clk
+//     .probe0(eth_to_axis_tvalid_reg),   // input wire [63:0]  probe0  
+//     .probe1(eth_to_axis_tdata_reg),  // input wire [7:0]  probe1 
+//     .probe2(eth_to_axis_tkeep_reg),   // input wire [0:0]  probe2 
+//     .probe3(tx_clk_out),     // input wire [63:0]  probe3 
+//     .probe4(axis_to_sfp_tvalid),    // input wire [0:0]  probe4 
+//     .probe5(axis_to_sfp_tdata),     // input wire [0:0]  probe5 
+//     .probe6(axis_to_sfp_tkeep),   // input wire [7:0]  probe6 
+//     .probe7(axis_to_sfp_tlast),   // input wire [7:0]  probe6 
+//     .probe8(eth_to_axis_tlast_reg),   // input wire [7:0]  probe6 
+//     .probe9(axis_to_sfp_tvalid_d0)   // input wire [7:0]  probe6 
 
 
-);
+// );
 
 // 时钟管理
 clk_wiz_0 u_clk_wiz_0(

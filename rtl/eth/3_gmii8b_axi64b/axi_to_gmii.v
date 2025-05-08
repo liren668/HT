@@ -9,6 +9,7 @@
 
 module axi_to_gmii(
     input                rst_n,          // 复位信号，低电平有效
+    input                clk_ila,        // ILA时钟
     
     // AXI Stream 接口 (156.25MHz)
     input                tx_clk_out,     // AXI时钟域写时钟
@@ -39,6 +40,23 @@ reg         fifo_rd_en;        // FIFO读使能
 (* ASYNC_REG = "TRUE" *) reg [7:0] sync_wr_count_1;  // 只需要8位，因为16字节只需要8位表示
 (* ASYNC_REG = "TRUE" *) reg [7:0] sync_wr_count_2;  // 只需要8位，因为16字节只需要8位表示
 
+ila_0 u_ila_0 (
+    .clk(clk_ila),              // input wire clk
+    .probe0(axis_tvalid),   // input wire [63:0]  probe0  
+    .probe1(axis_tdata),  // input wire [7:0]  probe1 
+    .probe2(axis_tkeep),   // input wire [0:0]  probe2 
+    .probe3(tx_clk_out),     // input wire [63:0]  probe3 
+    .probe4(gmii_txd),    // input wire [0:0]  probe4 
+    .probe5(gmii_tx_en),     // input wire [0:0]  probe5 
+    .probe6(gmii_tx_clk),   // input wire [7:0]  probe6 
+    .probe7(fifo_din),   // input wire [7:0]  probe6 
+    .probe8(fifo_dout),   // input wire [7:0]  probe6 
+    .probe9(data_last_reg),   // input wire [7:0]  probe6 
+    .probe10(keep_reg_last),   // input wire [7:0]  probe6 
+    .probe11(last_valid_reg),   // input wire [7:0]  probe6 
+    .probe12(data_delay_cnt)   // input wire [7:0]  probe6 
+);
+
 //FIFO 8bit 2048深度，占18K
 fifo_generator_0 fifo_inst (
     .rst(!rst_n),                    // 复位信号，高电平有效
@@ -59,29 +77,49 @@ fifo_generator_0 fifo_inst (
 
 // ==================== 写时钟域(156.25MHz) ====================
 reg [2:0]  byte_cnt;          // 字节计数器(0-7)
-reg [63:0] data_reg;          // 数据寄存器
-reg [7:0]  keep_reg;          // keep寄存器
-reg        valid_reg;         // valid寄存器
+reg [2:0]  last_byte_cnt;     // 最后一个字节计数器(0-7)
+reg [63:0] data_reg;          // 数据寄存器，存储完整数据包
+reg [63:0] data_last_reg;     // 最后一个数据寄存器，存储非完整数据包
+reg [7:0]  keep_reg;          // keep寄存器，只在非0xFF时保存值
+reg [7:0]  keep_reg_last;     // keep寄存器，只在非0xFF时保存值
+reg        valid_reg;         // valid寄存器，表示有数据需要处理
+reg        last_valid_reg;    // last_valid寄存器，表示最后一个数据包
+reg  [4:0]  data_delay_cnt;        // 数据延迟寄存器，用于延迟数据
 
 // 写控制逻辑
 always @(posedge tx_clk_out or negedge rst_n) begin
     if (!rst_n) begin
+        // 复位所有寄存器
         byte_cnt <= 3'd0;
+        last_byte_cnt <= 3'd0;
         fifo_wr_en <= 1'b0;
         fifo_din <= 8'd0;
         data_reg <= 64'd0;
-        keep_reg <= 8'h0;
+        data_last_reg <= 64'd0;
+        keep_reg <= 8'hFF;    // 复位为0xFF
+        keep_reg_last <= 8'hFF;
         valid_reg <= 1'b0;
+        last_valid_reg <= 1'b0;
+        data_delay_cnt <= 5'd0;
     end else begin
         // 默认值
         fifo_wr_en <= 1'b0;
         
         if (axis_tvalid) begin
-            // 新数据到达，更新寄存器
-            data_reg <= axis_tdata;
-            keep_reg <= axis_tkeep;
-            valid_reg <= 1'b1;
-            byte_cnt <= 3'd0;
+            // 新数据到达，根据tkeep更新寄存器
+            if (axis_tkeep == 8'hFF) begin
+                // 完整数据包直接写入data_reg
+                data_reg <= axis_tdata;
+                keep_reg <= 8'hFF;
+                valid_reg <= 1'b1;
+                byte_cnt <= 3'd0;
+            end else if (axis_tkeep != 8'h00 && axis_tkeep != 8'hFF) begin
+                // 非完整数据包先写入data_last_reg
+                data_last_reg <= axis_tdata;
+                keep_reg_last <= axis_tkeep;
+                last_valid_reg <= 1'b1;
+                data_delay_cnt <= 5'd0;
+            end
         end else if (valid_reg) begin
             // 处理已缓存的数据，跳过低8bit节点信息
             case (byte_cnt)
@@ -135,6 +173,19 @@ always @(posedge tx_clk_out or negedge rst_n) begin
                     valid_reg <= 1'b0;  // 处理完当前数据
                 end
             endcase
+        end else if (last_valid_reg) begin
+            // data_delay_cnt自加计数,等待上一个数据写入FIFO
+            if (data_delay_cnt <= 5'd5) begin
+                data_delay_cnt <= data_delay_cnt + 5'd1;
+            end
+            // 处理最后一个数据包，等待data_delay_cnt=5才开始处理
+            if (data_delay_cnt >= 5'd5) begin
+                data_reg <= data_last_reg;
+                keep_reg <= keep_reg_last;
+                valid_reg <= 1'b1;
+                byte_cnt <= 3'd0;
+                last_valid_reg <= 1'b0;     
+            end
         end
     end
 end
@@ -167,7 +218,7 @@ always @(posedge gmii_tx_clk or negedge rst_n) begin
         start_send1 <= 1'b0;
     end else begin
         
-        // 开始发送条件：FIFO数据量超过阈值且未开始发送
+        // 开始发送条件：FIFO数据量超过阈值开始发送
         if (sync_wr_count_2 >= START_THRESHOLD) begin
             start_send <= 1'b1;
             fifo_rd_en <= 1'b1; 
