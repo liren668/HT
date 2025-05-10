@@ -201,7 +201,7 @@ axi_to_gmii u_axi_to_gmii(
     // .axis_tlast     (axis_to_eth_tlast),
     .axis_tkeep     (axis_to_eth_tkeep),
     .gmii_tx_en     (gmii_tx_en),
-    .gmii_txd       (gmii_txd),
-    .clk_ila        (clk_ila)
+    .gmii_txd       (gmii_txd)
+//    .clk_ila        (clk_ila)
 );
 endmodule
